@@ -40,7 +40,6 @@ func NewAuthClientFromService(serviceClient authpb.AuthServiceClient, conn *grpc
 
 func (rc *AuthClient) Close() {
 	if rc.conn != nil {
-		log.Println("Closing gRPC AuthClient connection...")
 		err := rc.conn.Close()
 		if err != nil {
 			log.Printf("Failed to close gRPC connection: %v", err)
@@ -55,9 +54,7 @@ func (c *AuthClient) ValidateToken(token string) (isValid bool, userID string, u
 	req := &authpb.ValidateTokenRequest{Token: token}
 	res, err := c.service.ValidateToken(ctx, req)
 	if err != nil {
-		log.Printf("Gagal memanggil ValidateToken: %v", err)
 
-		// gRPC error handling
 		st, ok := status.FromError(err)
 		if ok {
 			if st.Code() == codes.Unauthenticated {

@@ -105,15 +105,16 @@ func (s *orderServiceImpl) CreateOrder(ctx context.Context, userID uuid.UUID, re
 			return nil, apperrors.ErrInvalidQuantity
 		}
 
-		// PENTING: TIDAK memeriksa stok di sini (if item.Quantity > productDetail.Stock).
-		// Itu adalah "Check-Then-Act" (race condition). Kita serahkan ke gRPC DecreaseStock.
+		/*
+		* PENTING: TIDAK memeriksa stok di sini (if item.Quantity > productDetail.Stock).
+		*Itu adalah "Check-Then-Act" (race condition). serahkan ke gRPC DecreaseStock.
+		 */
 
 		productID_uuid, _ := uuid.Parse(productDetail.Id)
 		sellerID_uuid, _ := uuid.Parse(productDetail.SellerId)
 		itemPrice := float64(productDetail.Price)
 		totalPrice += itemPrice * float64(itemReq.Quantity)
 
-		// Siapkan parameter untuk DB
 		itemsParams = append(itemsParams, db.CreateOrderItemParams{
 			ID:          uuid.New(),
 			ProductID:   productID_uuid,
@@ -168,7 +169,7 @@ func (s *orderServiceImpl) CreateOrder(ctx context.Context, userID uuid.UUID, re
 		if st.Code() == codes.FailedPrecondition {
 			return nil, apperrors.ErrProductOutOfStock
 		}
-		// Service catalog/product mati
+
 		return nil, fmt.Errorf("gRPC call to catalog service failed: %w", err)
 	}
 
@@ -279,12 +280,11 @@ func (s *orderServiceImpl) GetOrdersByUserID(ctx context.Context, userID uuid.UU
 			}
 		}
 
-		// Gabungkan 'order' dan 'items' menjadi 'OrderDetails'
 		finalOrderDetailsList = append(finalOrderDetailsList, entities.OrderDetails{
 			Order: *toDomainOrder(dbOrder),
 			Items: assembledItems,
 		})
-	} // Akhir loop 'for dbOrder'
+	}
 
 	jsonBytes, err := json.Marshal(finalOrderDetailsList)
 	if err == nil {
@@ -311,7 +311,6 @@ func (s *orderServiceImpl) GetOrderItemsByOrderID(ctx context.Context, ID uuid.U
 	if err == nil {
 		var cachedItems []entities.OrderItem
 		if json.Unmarshal([]byte(val), &cachedItems) == nil {
-			s.log.Printf("Cache HIT for order ID: %s", ID.String())
 			return cachedItems, nil
 		}
 	}
@@ -446,68 +445,6 @@ func (s *orderServiceImpl) fetchAccountDetails(ctx context.Context, sellerIDs []
 	return accountDetailsMap, nil
 }
 
-// func (s *orderServiceImpl) assembleOrderDetails(
-// 	dbOrders []db.GetOrdersByUserIDRow,
-// 	dbOrderItems []db.GetOrderItemsByOrderIDsRow,
-// 	productDetailsMap map[string]*productpb.Product,
-// 	accountDetailsMap map[string]*accountpb.User,
-// ) []entities.OrderDetails {
-
-// 	itemsByOrderID := make(map[uuid.UUID][]db.GetOrderItemsByOrderIDsRow)
-// 	for _, item := range dbOrderItems {
-// 		itemsByOrderID[item.OrderID] = append(itemsByOrderID[item.OrderID], item)
-// 	}
-
-// 	orderDetailsList := make([]entities.OrderDetails, 0, len(dbOrders))
-
-// 	for _, dbOrder := range dbOrders {
-
-// 		itemsForThisOrder := itemsByOrderID[dbOrder.ID]
-// 		enrichedItems := make([]entities.OrderItem, 0, len(itemsForThisOrder))
-
-// 		for _, dbItem := range itemsForThisOrder {
-// 			productDetail, okP := productDetailsMap[dbItem.ProductID.String()]
-// 			if !okP {
-// 				s.log.WithField("product_id", dbItem.ProductID).Warn("Product data not found during assembly, item skipped.")
-// 				continue
-// 			}
-
-// 			accountDetail, okA := accountDetailsMap[productDetail.SellerId]
-// 			if !okA {
-// 				s.log.WithField("seller_id", productDetail.SellerId).Warn("Seller data not found during assembly, item skipped.")
-// 				continue
-// 			}
-
-// 			priceAtPurchase, _ := strconv.ParseFloat(dbItem.Price, 64)
-// 			var description string
-// 			if dbItem.Description.Valid {
-// 				description = dbItem.Description.String
-// 			}
-
-// 			enrichedItem := entities.OrderItem{
-// 				ID:              dbItem.ID.String(),
-// 				OrderID:         dbItem.OrderID.String(),
-// 				SellerID:        productDetail.SellerId,
-// 				SellerName:      accountDetail.Name,
-// 				ProductID:       dbItem.ProductID.String(),
-// 				ProductName:     productDetail.Name,
-// 				Quantity:        int(dbItem.Quantity),
-// 				ProductPrice:    priceAtPurchase,
-// 				CartDescription: description,
-// 			}
-// 			enrichedItems = append(enrichedItems, enrichedItem)
-// 		}
-
-// 		orderDetails := entities.OrderDetails{
-// 			Order: *toDomainOrder(dbOrder),
-// 			Items: enrichedItems,
-// 		}
-// 		orderDetailsList = append(orderDetailsList, orderDetails)
-// 	}
-
-// 	return orderDetailsList
-// }
-
 func (s *orderServiceImpl) assembleOrderItems(
 	dbOrderItems []db.GetOrderItemsByOrderIDRow,
 	productDetailsMap map[string]*productpb.Product,
@@ -639,7 +576,7 @@ func (s *orderServiceImpl) InvalidateCachesForOrderChange(ctx context.Context, u
 func (s *orderServiceImpl) ResetAllOrderCaches(ctx context.Context) error {
 	s.log.Info("Starting to reset ALL order caches...")
 
-	resetCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Beri waktu 30 detik
+	resetCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	patterns := []string{

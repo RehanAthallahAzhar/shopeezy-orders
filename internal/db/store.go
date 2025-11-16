@@ -1,5 +1,4 @@
-// file: internal/db/store.go
-package db // Pastikan package-nya 'db', sama seperti file lain di folder ini
+package db
 
 import (
 	"context"
@@ -20,7 +19,6 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (store *Store) ExecTx(ctx context.Context, fn func(*Queries) error) error {
-	// Memulai transaksi baru dari koneksi utama
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

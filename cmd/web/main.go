@@ -3,29 +3,28 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	// DB
 	"github.com/RehanAthallahAzhar/shopeezy-orders/db"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/configs"
 	dbGenerated "github.com/RehanAthallahAzhar/shopeezy-orders/internal/db"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/handlers"
 
-	// Migrations
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
 
-	// Internal Packages
-	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/delivery/http/middlewares"
+	customMiddleware "github.com/RehanAthallahAzhar/shopeezy-orders/internal/delivery/http/middlewares"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/delivery/http/routes"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/gateways/messaging"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/models"
@@ -35,7 +34,6 @@ import (
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/repositories"
 	"github.com/RehanAthallahAzhar/shopeezy-orders/internal/services"
 
-	// Protobuf Packages
 	accountpb "github.com/RehanAthallahAzhar/shopeezy-protos/pb/account"
 	authpb "github.com/RehanAthallahAzhar/shopeezy-protos/pb/auth"
 	productpb "github.com/RehanAthallahAzhar/shopeezy-protos/pb/product"
@@ -49,8 +47,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: Gagal memuat konfigurasi: %v", err)
 	}
-
-	log.Printf(">>>> BUKTI ALAMAT GRPC YANG AKAN DIGUNAKAN: '%s'", cfg.GRPC.AccountServiceAddress)
 
 	dbCredential := models.Credential{
 		Host:         cfg.Postgre.Host,
@@ -69,7 +65,6 @@ func main() {
 	}
 
 	// Migration
-	log.Println("Running database migrations...")
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		dbCredential.Username,
 		dbCredential.Password,
@@ -89,14 +84,12 @@ func main() {
 		log.Fatalf("Failed to execute database migrations: %v", err)
 	}
 
-	log.Println("Database migration successfully executed.")
-
 	// Init SQLC Store untuk Transaksi
 	sqlcQueries := dbGenerated.New(conn)
 	store := dbGenerated.NewStore(conn)
 
 	// Redis
-	redisClient, err := redis.NewRedisClient()
+	redisClient, err := redis.NewRedisClient(&cfg.Redis, log)
 	if err != nil {
 		log.Fatalf("Failed to create Redis client: %v", err)
 	}
@@ -107,7 +100,6 @@ func main() {
 	defer productConn.Close()
 
 	productClient := productpb.NewProductServiceClient(productConn)
-	log.Printf("Product Service Connected to %s", cfg.GRPC.ProductServiceAddress)
 
 	// gRPC Account & Auth
 	accountConn := createGrpcConnection(cfg.GRPC.AccountServiceAddress, log)
@@ -116,8 +108,6 @@ func main() {
 
 	authClient := authpb.NewAuthServiceClient(accountConn)
 	authClientWrapper := account.NewAuthClientFromService(authClient, accountConn)
-
-	log.Printf("Account Service Connected to %s", cfg.GRPC.AccountServiceAddress)
 
 	// Publisher Rabbitmq
 	rabbitMQURL := cfg.RabbitMQ.URL
@@ -145,27 +135,33 @@ func main() {
 	orderHandler := handlers.NewHandler(orderService, log)
 
 	// midlleware
-	authMiddleware := middlewares.AuthMiddleware(authClientWrapper, log)
+	authMiddleware := customMiddleware.AuthMiddleware(authClientWrapper, log)
 
-	// Setup Server Web (Echo)
+	// Setup Server Web
 	e := echo.New()
+	e.Use(middleware.RequestID())
+	e.Use(customMiddleware.LoggingMiddleware(log))
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{
+			"http://localhost",
+			"http://localhost:5173",
+		},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+	}))
 
 	routes.InitRoutes(e, orderHandler, authMiddleware)
 
-	log.Printf("Server Running on port%s", cfg.Server.Port)
 	if err := e.Start(":" + cfg.Server.Port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
 func createGrpcConnection(url string, log *logrus.Logger) *grpc.ClientConn {
-	// Gunakan grpc.Dial, yang modern dan non-blocking
 	conn, err := grpc.NewClient(url, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		// Gunakan Fatalf di sini karena jika koneksi gagal saat startup,
-		// aplikasi tidak bisa berjalan dengan benar.
 		log.Fatalf("Failed to connect to gRPC service at %s: %v", url, err)
 	}
-	log.Printf("Connected to gRPC service at %s", url)
+
 	return conn
 }

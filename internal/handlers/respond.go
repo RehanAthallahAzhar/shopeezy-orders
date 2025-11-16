@@ -39,7 +39,7 @@ func respondError(c echo.Context, status int, err error) error {
 func handleGetError(c echo.Context, err error) error {
 	switch {
 	case errors.Is(err, apperrors.ErrInvalidUserInput),
-		errors.Is(err, apperrors.ErrInvalidCartOperation): // misalnya operasi cart yang tak sesuai
+		errors.Is(err, apperrors.ErrInvalidCartOperation):
 		return respondError(c, http.StatusBadRequest, err)
 
 	case errors.Is(err, apperrors.ErrInsufficientStock),

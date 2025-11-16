@@ -24,7 +24,7 @@ func NewHandler(
 	}
 }
 
-// ---- HELPER -----
+// ---- HELPERS -----
 
 func getUserIDFromContext(c echo.Context) (uuid.UUID, error) {
 	if val := c.Get("userID"); val != nil {

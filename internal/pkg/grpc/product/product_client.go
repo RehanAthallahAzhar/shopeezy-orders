@@ -27,7 +27,6 @@ func NewProductClient(grpcServerAddress string) (*ProductClient, error) {
 	}, nil
 }
 
-// Tambahkan fungsi Close agar mudah mengelola koneksi
 func (c *ProductClient) Close() {
 	c.Conn.Close()
 }
