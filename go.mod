@@ -3,6 +3,7 @@ module github.com/RehanAthallahAzhar/tokohobby-orders
 go 1.24.5
 
 require (
+	github.com/RehanAthallahAzhar/tokohobby-messaging-go v0.2.0
 	github.com/RehanAthallahAzhar/tokohobby-protos v0.0.0-20251228082717-30b8d4498bbb
 	github.com/caarlos0/env/v6 v6.10.1
 	github.com/go-playground/validator/v10 v10.30.1
@@ -14,7 +15,6 @@ require (
 	github.com/labstack/echo/v4 v4.14.0
 	github.com/lib/pq v1.10.9
 	github.com/sirupsen/logrus v1.9.3
-	github.com/streadway/amqp v1.1.0
 	google.golang.org/grpc v1.78.0
 )
 
@@ -28,6 +28,7 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.46.0 // indirect

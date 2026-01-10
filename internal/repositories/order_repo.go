@@ -20,6 +20,7 @@ type OrderRepository interface {
 	GetOrdersByUserID(ctx context.Context, userID uuid.UUID) ([]db.GetOrdersByUserIDRow, error)
 	GetOrderItemsByOrderID(ctx context.Context, orderIDs uuid.UUID) ([]db.GetOrderItemsByOrderIDRow, error)
 	GetOrderItemsByOrderIDs(ctx context.Context, orderIDs []uuid.UUID) ([]db.GetOrderItemsByOrderIDsRow, error)
+	UpdateOrderStatus(ctx context.Context, tx *sql.Tx, orderID uuid.UUID, status string) (db.Order, error)
 	CancelOrder(ctx context.Context, tx *sql.Tx, orderID uuid.UUID, userID uuid.UUID) (db.Order, error)
 	GetItemsForRestock(ctx context.Context, tx *sql.Tx, orderID uuid.UUID) ([]db.GetItemsForRestockRow, error)
 }
@@ -105,6 +106,19 @@ func (r *orderRepository) GetOrderItemsByOrderID(ctx context.Context, orderID uu
 	return items, nil
 }
 
+func (r *orderRepository) GetItemsForRestock(ctx context.Context, tx *sql.Tx, orderID uuid.UUID) ([]db.GetItemsForRestockRow, error) {
+	qtx := r.q.WithTx(tx)
+	return qtx.GetItemsForRestock(ctx, orderID)
+}
+
+func (r *orderRepository) UpdateOrderStatus(ctx context.Context, tx *sql.Tx, orderID uuid.UUID, status string) (db.Order, error) {
+	qtx := r.q.WithTx(tx)
+	return qtx.UpdateOrderStatus(ctx, db.UpdateOrderStatusParams{
+		ID:          orderID,
+		OrderStatus: db.OrderStatus(status),
+	})
+}
+
 func (r *orderRepository) CancelOrder(ctx context.Context, tx *sql.Tx, orderID uuid.UUID, userID uuid.UUID) (db.Order, error) {
 	qtx := r.q.WithTx(tx)
 	dbOrder, err := qtx.CancelOrder(ctx, db.CancelOrderParams{
@@ -118,9 +132,4 @@ func (r *orderRepository) CancelOrder(ctx context.Context, tx *sql.Tx, orderID u
 		return db.Order{}, fmt.Errorf("failed to cancel order: %w", err)
 	}
 	return dbOrder, nil
-}
-
-func (r *orderRepository) GetItemsForRestock(ctx context.Context, tx *sql.Tx, orderID uuid.UUID) ([]db.GetItemsForRestockRow, error) {
-	qtx := r.q.WithTx(tx)
-	return qtx.GetItemsForRestock(ctx, orderID)
 }

@@ -1,19 +1,42 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/entities"
+	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/messaging"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/models"
 	apperrors "github.com/RehanAthallahAzhar/tokohobby-orders/internal/pkg/errors"
+	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/services"
 )
 
-func (api *API) CreateOrder() echo.HandlerFunc {
+type OrderHandler struct {
+	OrderSvc services.OrderService
+	EventPub *messaging.EventPublisher
+	log      *logrus.Logger
+}
+
+func NewOrderHandler(
+	orderSvc services.OrderService,
+	eventPub *messaging.EventPublisher,
+	log *logrus.Logger,
+) *OrderHandler {
+	return &OrderHandler{
+		OrderSvc: orderSvc,
+		EventPub: eventPub,
+		log:      log,
+	}
+}
+
+func (h *OrderHandler) CreateOrder() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
-		api.log.Infof("Received request to create product from IP: %s", c.RealIP())
+		h.log.Infof("Received request to create product from IP: %s", c.RealIP())
 
 		userID, err := getUserIDFromContext(c)
 		if err != nil {
@@ -24,9 +47,8 @@ func (api *API) CreateOrder() echo.HandlerFunc {
 		if err := c.Bind(&req); err != nil {
 			return respondError(c, http.StatusBadRequest, apperrors.ErrInvalidRequestPayload)
 		}
-		api.log.WithField("user_id", userID).Info("Receiving CreateOrder requests")
 
-		order, err := api.OrderSvc.CreateOrder(ctx, userID, req)
+		order, err := h.OrderSvc.CreateOrder(ctx, userID, req)
 		if err != nil {
 			return handleOperationError(c, err)
 		}
@@ -35,7 +57,7 @@ func (api *API) CreateOrder() echo.HandlerFunc {
 	}
 }
 
-func (api *API) GetUserOrders() echo.HandlerFunc {
+func (h *OrderHandler) GetUserOrders() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 
@@ -44,11 +66,9 @@ func (api *API) GetUserOrders() echo.HandlerFunc {
 			return respondError(c, http.StatusUnauthorized, apperrors.ErrInvalidUserSession)
 		}
 
-		api.log.WithField("user_id", userID).Info("Receiving GetUserOrders requests")
-
-		orderDetails, err := api.OrderSvc.GetOrdersByUserID(ctx, userID)
+		orderDetails, err := h.OrderSvc.GetOrdersByUserID(ctx, userID)
 		if err != nil {
-			api.log.WithField("error", err).Error("Error from the service when retrieving orders")
+			h.log.WithField("error", err).Error("Error from the service when retrieving orders")
 			return handleGetError(c, err)
 		}
 
@@ -57,7 +77,7 @@ func (api *API) GetUserOrders() echo.HandlerFunc {
 	}
 }
 
-func (api *API) GetOrderDetails() echo.HandlerFunc {
+func (h *OrderHandler) GetOrderDetails() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 
@@ -66,9 +86,9 @@ func (api *API) GetOrderDetails() echo.HandlerFunc {
 			return respondError(c, http.StatusBadRequest, err)
 		}
 
-		api.log.WithField("order_id", orderID).Info("Receiving GetOrderItems requests")
+		h.log.WithField("order_id", orderID).Info("Receiving GetOrderItems requests")
 
-		items, err := api.OrderSvc.GetOrderItemsByOrderID(ctx, orderID)
+		items, err := h.OrderSvc.GetOrderItemsByOrderID(ctx, orderID)
 		if err != nil {
 			return handleGetError(c, err)
 		}
@@ -77,7 +97,49 @@ func (api *API) GetOrderDetails() echo.HandlerFunc {
 	}
 }
 
-func (api *API) CancelOrder() echo.HandlerFunc {
+func (h *OrderHandler) UpdateOrderStatus(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	orderID, err := getIDFromPathParam(c, "id")
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, err)
+	}
+
+	var req models.UpdateOrderStatusReq
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, apperrors.ErrInvalidRequestPayload)
+	}
+
+	var order *entities.Order
+	order, err = h.OrderSvc.UpdateOrderStatus(ctx, orderID, req.Status)
+	if err != nil {
+		return handleGetError(c, err)
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		event := messaging.OrderStatusChangedEvent{
+			OrderID: order.ID.String(),
+			UserID:  order.UserID.String(),
+			// Email:        order.UserEmail,
+			OldStatus:   messaging.OrderStatus(req.CurrentStatus),
+			NewStatus:   messaging.OrderStatus(order.OrderStatus),
+			TotalAmount: order.TotalPrice,
+			// ProductCount: len(order.),
+			ChangedAt: time.Now(),
+		}
+
+		if err := h.EventPub.PublishOrderStatusChanged(ctx, event); err != nil {
+			h.log.Errorf("Failed to publish order status changed: %v", err)
+		}
+	}()
+
+	return respondSuccess(c, http.StatusOK, "Order status updated", order)
+}
+
+func (h *OrderHandler) CancelOrder() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 
@@ -91,9 +153,9 @@ func (api *API) CancelOrder() echo.HandlerFunc {
 			return respondError(c, http.StatusUnauthorized, apperrors.ErrInvalidUserSession)
 		}
 
-		api.log.WithField("order_id", orderID).Info("Receiving CancelOrder requests")
+		h.log.WithField("order_id", orderID).Info("Receiving CancelOrder requests")
 
-		order, err := api.OrderSvc.CancelOrder(ctx, orderID, userID)
+		order, err := h.OrderSvc.CancelOrder(ctx, orderID, userID)
 		if err != nil {
 			return handleGetError(c, err)
 		}
@@ -102,10 +164,10 @@ func (api *API) CancelOrder() echo.HandlerFunc {
 	}
 }
 
-func (api *API) ResetAllOrderCaches() echo.HandlerFunc {
+func (h *OrderHandler) ResetAllOrderCaches() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
-		err := api.OrderSvc.ResetAllOrderCaches(ctx)
+		err := h.OrderSvc.ResetAllOrderCaches(ctx)
 		if err != nil {
 			return handleOperationError(c, err)
 		}

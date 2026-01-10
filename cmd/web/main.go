@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
-	"github.com/streadway/amqp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -26,7 +25,6 @@ import (
 
 	customMiddleware "github.com/RehanAthallahAzhar/tokohobby-orders/internal/delivery/http/middlewares"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/delivery/http/routes"
-	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/gateways/messaging"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/models"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/pkg/grpc/account"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/pkg/logger"
@@ -37,6 +35,9 @@ import (
 	accountpb "github.com/RehanAthallahAzhar/tokohobby-protos/pb/account"
 	authpb "github.com/RehanAthallahAzhar/tokohobby-protos/pb/auth"
 	productpb "github.com/RehanAthallahAzhar/tokohobby-protos/pb/product"
+
+	messaging "github.com/RehanAthallahAzhar/tokohobby-messaging-go"
+	orderMsg "github.com/RehanAthallahAzhar/tokohobby-orders/internal/messaging"
 )
 
 func main() {
@@ -44,7 +45,7 @@ func main() {
 
 	cfg, err := configs.LoadConfig(log)
 	if err != nil {
-		log.Fatalf("FATAL: Failed to load config: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	dbCredential := models.Credential{
@@ -108,30 +109,27 @@ func main() {
 	authClient := authpb.NewAuthServiceClient(accountConn)
 	authClientWrapper := account.NewAuthClientFromService(authClient, accountConn)
 
-	// Publisher Rabbitmq
-	rabbitMQURL := cfg.RabbitMQ.URL
-	rabbitConn, err := amqp.Dial(rabbitMQURL)
+	// Initialize RabbitMQ
+	rmqConfig := messaging.DefaultConfig()
+	rmq, err := messaging.NewRabbitMQ(rmqConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
-	defer rabbitConn.Close()
+	defer rmq.Close()
 
-	rabbitChannel, err := rabbitConn.Channel()
-	if err != nil {
-		log.Fatalf("Failed to open RabbitMQ channel: %v", err)
+	// Setup exchange
+	if err := messaging.SetupOrderExchange(rmq); err != nil {
+		log.Fatalf("Failed to setup order exchange: %v", err)
 	}
-	defer rabbitChannel.Close()
 
-	orderPublisher, err := messaging.NewRabbitMQPublisher(rabbitChannel)
-	if err != nil {
-		log.Fatalf("Failed to create RabbitMQ publisher: %v", err)
-	}
+	// Create event publisher
+	eventPublisher := orderMsg.NewEventPublisher(rmq, log)
 
 	// Dependency Injection
 	validate := validator.New()
 	orderRepo := repositories.NewOrderRepository(conn, sqlcQueries, store, log)
-	orderService := services.NewOrderService(orderRepo, redisClient, productClient, accountClient, orderPublisher, validate, log)
-	orderHandler := handlers.NewHandler(orderService, log)
+	orderService := services.NewOrderService(orderRepo, redisClient, productClient, accountClient, validate, log)
+	orderHandler := handlers.NewOrderHandler(orderService, eventPublisher, log)
 
 	// midlleware
 	authMiddleware := customMiddleware.AuthMiddleware(authClientWrapper, cfg.Server.JWTSecret, cfg.Server.Audience, log)

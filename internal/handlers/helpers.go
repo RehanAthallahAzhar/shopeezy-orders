@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/helpers"
+	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/messaging"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/pkg/errors"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/services"
 	"github.com/google/uuid"
@@ -11,15 +12,18 @@ import (
 
 type API struct {
 	OrderSvc services.OrderService
+	EventPub messaging.EventPublisher
 	log      *logrus.Logger
 }
 
 func NewHandler(
 	orderSvc services.OrderService,
+	eventPub messaging.EventPublisher,
 	log *logrus.Logger,
 ) *API {
 	return &API{
 		OrderSvc: orderSvc,
+		EventPub: eventPub,
 		log:      log,
 	}
 }

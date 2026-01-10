@@ -31,3 +31,8 @@ type OrderDetailReq struct {
 	Order OrderReq       `json:"order"`
 	Items []OrderItemReq `json:"items"`
 }
+
+type UpdateOrderStatusReq struct {
+	Status        string `json:"status" validate:"required"`
+	CurrentStatus string `json:"current_status" validate:"required"`
+}

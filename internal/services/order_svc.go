@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/entities"
-	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/gateways/messaging"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/helpers"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/models"
 	"github.com/RehanAthallahAzhar/tokohobby-orders/internal/pkg/db"
@@ -33,6 +32,7 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, userID uuid.UUID, req models.OrderDetailReq) (*entities.Order, error)
 	GetOrdersByUserID(ctx context.Context, userID uuid.UUID) ([]entities.OrderDetails, error)
 	GetOrderItemsByOrderID(ctx context.Context, ID uuid.UUID) ([]entities.OrderItem, error)
+	UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) (*entities.Order, error)
 	CancelOrder(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) (*entities.Order, error)
 	ResetAllOrderCaches(ctx context.Context) error
 }
@@ -42,7 +42,6 @@ type orderServiceImpl struct {
 	redisClient   *redis.RedisClient
 	productClient productpb.ProductServiceClient
 	accountClient accountpb.AccountServiceClient
-	publisher     *messaging.RabbitMQPublisher
 	validator     *validator.Validate
 	log           *logrus.Logger
 }
@@ -52,7 +51,6 @@ func NewOrderService(
 	redisClient *redis.RedisClient,
 	productClient productpb.ProductServiceClient,
 	accountClient accountpb.AccountServiceClient,
-	publisher *messaging.RabbitMQPublisher,
 	validator *validator.Validate,
 	log *logrus.Logger,
 ) OrderService {
@@ -61,7 +59,6 @@ func NewOrderService(
 		redisClient:   redisClient,
 		productClient: productClient,
 		accountClient: accountClient,
-		publisher:     publisher,
 		validator:     validator,
 		log:           log,
 	}
@@ -346,6 +343,21 @@ func (s *orderServiceImpl) GetOrderItemsByOrderID(ctx context.Context, ID uuid.U
 
 	return finalItems, nil
 
+}
+
+func (s *orderServiceImpl) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) (*entities.Order, error) {
+	tx, err := s.orderRepo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin db transaction: %w", err)
+	}
+
+	updatedOrder, err := s.orderRepo.UpdateOrderStatus(ctx, tx, orderID, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update order status: %w", err)
+	}
+	defer tx.Rollback()
+
+	return toDomainOrder(updatedOrder), nil
 }
 
 func (s *orderServiceImpl) CancelOrder(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) (*entities.Order, error) {
