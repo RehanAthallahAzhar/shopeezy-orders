@@ -7,16 +7,13 @@ import (
 )
 
 func InitRoutes(e *echo.Echo, orderHandler *handlers.OrderHandler, authMiddleware echo.MiddlewareFunc) {
-	apiV1 := e.Group("/api/v1")
-
-	apiV1.Use(authMiddleware)
-
-	orderGroup := apiV1.Group("/orders")
+	order := e.Group("/orders")
+	order.Use(authMiddleware)
 	{
-		orderGroup.POST("/", orderHandler.CreateOrder())
-		orderGroup.GET("/", orderHandler.GetUserOrders())
-		orderGroup.GET("/:id", orderHandler.GetOrderDetails())
-		orderGroup.POST("/:id/cancel", orderHandler.CancelOrder())
-		orderGroup.POST("/reset-caches", orderHandler.ResetAllOrderCaches())
+		order.POST("/", orderHandler.CreateOrder())
+		order.GET("/", orderHandler.GetUserOrders())
+		order.GET("/:id", orderHandler.GetOrderDetails())
+		order.POST("/:id/cancel", orderHandler.CancelOrder())
+		order.POST("/reset-caches", orderHandler.ResetAllOrderCaches())
 	}
 }

@@ -96,7 +96,7 @@ func main() {
 	defer redisClient.Close()
 
 	// gRPC Product
-	productConn := createGrpcConnection(cfg.GRPC.ProductServiceAddress, log)
+	productConn := createGrpcConnection(cfg.GRPC.CatalogServiceAddress, log)
 	defer productConn.Close()
 
 	productClient := productpb.NewProductServiceClient(productConn)
